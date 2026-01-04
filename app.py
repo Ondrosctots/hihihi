@@ -38,6 +38,12 @@ def headers(token):
         "Accept": "application/hal+json",
     }
 
+def upload_headers(token):
+    # Simplified headers for uploads (no Accept-Version or Accept to avoid conflicts)
+    return {
+        "Authorization": f"Bearer {token}",
+    }
+
 def extract_listing_id(url):
     if "reverb.com/item/" not in url:
         return None
@@ -103,7 +109,7 @@ if st.button("Create Draft"):
     st.success(f"Draft created! ID: {draft_id}")
 
     # -------------------------
-    # 3. Upload user photos (Two-step process)
+    # 3. Upload user photos (Two-step process with debugging)
     # -------------------------
     if uploaded_files:
         st.info(f"Uploading {len(uploaded_files)} photo(s)...")
@@ -111,28 +117,31 @@ if st.button("Create Draft"):
             try:
                 file.seek(0)  # Reset pointer
                 
-                # Step 1: Upload the photo file to get a photo ID (updated endpoint)
+                # Step 1: Upload the photo file to get a photo ID (with simplified headers)
+                st.info(f"Debug: Attempting upload for {file.name} to {BASE_API}/my/photos")
                 upload_response = requests.post(
-                    f"{BASE_API}/photos",  # Updated: Removed /my/ for photo uploads
-                    headers=headers(token),
+                    f"{BASE_API}/my/photos",  # Reverted to /my/photos with fixes
+                    headers=upload_headers(token),  # No Accept-Version/Accept
                     files={"photo": (file.name, file, "image/jpeg")},
                 )
                 
+                st.info(f"Debug: Upload response status: {upload_response.status_code}")
                 if upload_response.status_code not in (200, 201):
                     st.warning(f"Failed to upload photo {idx}: {file.name} (Step 1 failed)")
-                    st.code(upload_response.text)
+                    st.code(f"Response: {upload_response.text}")
                     continue  # Skip to next photo
                 
                 photo_data = upload_response.json()
                 photo_id = photo_data.get("id")
                 if not photo_id:
                     st.warning(f"No photo ID returned for {file.name} (Step 1)")
+                    st.code(f"Response data: {photo_data}")
                     continue
                 
                 # Step 2: Associate the photo with the draft listing
                 associate_response = requests.post(
                     f"{BASE_API}/my/listings/{draft_id}/photos",
-                    headers={**headers(token), "Content-Type": "application/json"},
+                    headers={**upload_headers(token), "Content-Type": "application/json"},  # Simplified headers
                     json={"photo_id": photo_id}
                 )
                 
