@@ -111,7 +111,7 @@ if st.button("Create Draft"):
             try:
                 file.seek(0)  # Reset pointer
                 upload = requests.post(
-                    f"{BASE_API}/listings/{draft_id}/photos",
+                    f"{BASE_API}/my/listings/{draft_id}/photos",  # Updated: Added /my/ to the path for user-specific uploads
                     headers=headers(token),
                     files={"photo": (file.name, file, "image/jpeg")},
                 )
