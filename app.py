@@ -39,9 +39,10 @@ def headers(token):
     }
 
 def upload_headers(token):
-    # Simplified headers for uploads (no Accept-Version or Accept to avoid conflicts)
+    # Include Accept-Version for uploads (might be required)
     return {
         "Authorization": f"Bearer {token}",
+        "Accept-Version": "3.0",
     }
 
 def extract_listing_id(url):
@@ -109,7 +110,7 @@ if st.button("Create Draft"):
     st.success(f"Draft created! ID: {draft_id}")
 
     # -------------------------
-    # 3. Upload user photos (Two-step process with extensive debugging)
+    # 3. Upload user photos (Two-step process with extensive debugging and alternatives)
     # -------------------------
     if uploaded_files:
         st.info(f"Uploading {len(uploaded_files)} photo(s)...")
@@ -119,73 +120,90 @@ if st.button("Create Draft"):
                 
                 # Debug: Log request details (without token)
                 st.info(f"Debug: Preparing upload for {file.name}")
-                st.write(f"Debug: Endpoint: {BASE_API}/my/photos")
-                st.write(f"Debug: Method: POST")
-                st.write(f"Debug: Headers: Authorization (Bearer [REDACTED]), Content-Type: multipart/form-data")
-                st.write(f"Debug: File: {file.name}, Size: {len(file.read())} bytes")
-                file.seek(0)  # Reset after reading size
+                st.write(f"Debug: File size: {len(file.read())} bytes")
+                file.seek(0)
                 
-                # Debug: Test if endpoint exists with a GET request
-                st.info("Debug: Testing endpoint existence with GET request...")
-                test_get = requests.get(f"{BASE_API}/my/photos", headers=upload_headers(token))
-                st.write(f"Debug: GET /my/photos status: {test_get.status_code}")
-                if test_get.status_code == 404:
-                    st.warning("Debug: GET /my/photos also returns 404 - endpoint likely doesn't exist.")
-                else:
-                    st.write(f"Debug: GET response: {test_get.text[:500]}...")  # Truncate for brevity
+                success = False
                 
-                # Step 1: Attempt upload with current endpoint
-                st.info("Debug: Attempting POST upload...")
-                upload_response = requests.post(
-                    f"{BASE_API}/my/photos",
+                # Attempt 1: Direct upload to listing photos endpoint
+                st.info("Debug: Attempt 1 - Direct upload to /my/listings/{draft_id}/photos")
+                direct_upload = requests.post(
+                    f"{BASE_API}/my/listings/{draft_id}/photos",
                     headers=upload_headers(token),
                     files={"photo": (file.name, file, "image/jpeg")},
                 )
-                st.write(f"Debug: POST status: {upload_response.status_code}")
-                st.write(f"Debug: POST response headers: {dict(upload_response.headers)}")
-                st.write(f"Debug: POST response body: {upload_response.text}")
-                
-                if upload_response.status_code not in (200, 201):
-                    st.warning(f"Failed to upload photo {idx}: {file.name} (Step 1 failed)")
-                    
-                    # Debug: Try alternative endpoint (/photos without /my/)
-                    st.info("Debug: Trying alternative endpoint /photos (no /my/)...")
-                    alt_upload = requests.post(
-                        f"{BASE_API}/photos",
-                        headers=upload_headers(token),
-                        files={"photo": (file.name, file, "image/jpeg")},
-                    )
-                    st.write(f"Debug: ALT POST /photos status: {alt_upload.status_code}")
-                    st.write(f"Debug: ALT response: {alt_upload.text}")
-                    
-                    if alt_upload.status_code in (200, 201):
-                        st.success("Debug: Alternative endpoint worked! Using it for photo ID.")
-                        photo_data = alt_upload.json()
-                    else:
-                        continue  # Skip if both fail
-                else:
-                    photo_data = upload_response.json()
-                
-                photo_id = photo_data.get("id")
-                if not photo_id:
-                    st.warning(f"No photo ID returned for {file.name}")
-                    st.code(f"Response data: {photo_data}")
+                st.write(f"Debug: Direct upload status: {direct_upload.status_code}")
+                st.write(f"Debug: Direct upload response: {direct_upload.text}")
+                if direct_upload.status_code in (200, 201):
+                    st.success(f"Debug: Direct upload worked for photo {idx}!")
+                    success = True
                     continue
                 
-                # Step 2: Associate the photo with the draft listing
-                st.info(f"Debug: Associating photo ID {photo_id} with draft {draft_id}")
-                associate_response = requests.post(
+                # Attempt 2: Try "file" key instead of "photo"
+                st.info("Debug: Attempt 2 - Using 'file' key instead of 'photo'")
+                file_upload = requests.post(
                     f"{BASE_API}/my/listings/{draft_id}/photos",
-                    headers={**upload_headers(token), "Content-Type": "application/json"},
-                    json={"photo_id": photo_id}
+                    headers=upload_headers(token),
+                    files={"file": (file.name, file, "image/jpeg")},
                 )
-                st.write(f"Debug: Associate POST status: {associate_response.status_code}")
-                st.write(f"Debug: Associate response: {associate_response.text}")
+                st.write(f"Debug: File key upload status: {file_upload.status_code}")
+                st.write(f"Debug: File key response: {file_upload.text}")
+                if file_upload.status_code in (200, 201):
+                    st.success(f"Debug: File key upload worked for photo {idx}!")
+                    success = True
+                    continue
                 
-                if associate_response.status_code not in (200, 201):
-                    st.warning(f"Failed to associate photo {idx}: {file.name} (Step 2 failed)")
-                else:
-                    st.success(f"Uploaded and associated photo {idx}: {file.name}")
+                # Attempt 3: Try presigned URL flow (request URL first)
+                st.info("Debug: Attempt 3 - Presigned URL flow")
+                presign_request = requests.post(
+                    f"{BASE_API}/my/listings/{draft_id}/photos/presigned_url",
+                    headers={**upload_headers(token), "Content-Type": "application/json"},
+                    json={"filename": file.name, "content_type": "image/jpeg"}
+                )
+                st.write(f"Debug: Presign request status: {presign_request.status_code}")
+                st.write(f"Debug: Presign response: {presign_request.text}")
+                if presign_request.status_code in (200, 201):
+                    presign_data = presign_request.json()
+                    upload_url = presign_data.get("url") or presign_data.get("upload_url")
+                    if upload_url:
+                        st.write(f"Debug: Uploading to presigned URL: {upload_url}")
+                        presign_upload = requests.put(
+                            upload_url,
+                            data=file.read(),
+                            headers={"Content-Type": "image/jpeg"}
+                        )
+                        st.write(f"Debug: Presign upload status: {presign_upload.status_code}")
+                        if presign_upload.status_code in (200, 201):
+                            st.success(f"Debug: Presigned upload worked for photo {idx}!")
+                            success = True
+                            continue
+                
+                # Attempt 4: Try /photos without /my/ with "file" key
+                st.info("Debug: Attempt 4 - /photos with 'file' key")
+                alt_file_upload = requests.post(
+                    f"{BASE_API}/photos",
+                    headers=upload_headers(token),
+                    files={"file": (file.name, file, "image/jpeg")},
+                )
+                st.write(f"Debug: Alt file upload status: {alt_file_upload.status_code}")
+                st.write(f"Debug: Alt file response: {alt_file_upload.text}")
+                if alt_file_upload.status_code in (200, 201):
+                    photo_data = alt_file_upload.json()
+                    photo_id = photo_data.get("id")
+                    if photo_id:
+                        # Associate
+                        associate_response = requests.post(
+                            f"{BASE_API}/my/listings/{draft_id}/photos",
+                            headers={**upload_headers(token), "Content-Type": "application/json"},
+                            json={"photo_id": photo_id}
+                        )
+                        if associate_response.status_code in (200, 201):
+                            st.success(f"Debug: Alt file + associate worked for photo {idx}!")
+                            success = True
+                            continue
+                
+                if not success:
+                    st.error(f"All upload attempts failed for photo {idx}: {file.name}. Check token permissions or API docs.")
             
             except Exception as e:
                 st.error(f"Exception uploading photo {idx}: {file.name}")
