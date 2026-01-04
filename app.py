@@ -6,11 +6,11 @@ import tempfile
 import os
 
 st.set_page_config(page_title="Reverb Draft Creator", layout="centered")
-st.title("Reverb Draft Creator (WITH Photos)")
+st.title("Reverb Draft Creator (Photos Fixed)")
 
 st.markdown("""
-Copies an existing Reverb listing **including photos**
-and recreates it as a **draft** on your account.
+Clones any public Reverb listing **including photos**
+and saves it as a **draft** on your account.
 """)
 
 token = st.text_input("Reverb API Token", type="password")
@@ -34,7 +34,7 @@ def extract_listing_id(url):
 
 if st.button("Create Draft with Photos"):
     if not token or not url:
-        st.error("Please provide both API token and listing URL.")
+        st.error("Please provide API token and listing URL.")
         st.stop()
 
     listing_id = extract_listing_id(url)
@@ -43,11 +43,11 @@ if st.button("Create Draft with Photos"):
         st.stop()
 
     # -------------------------------------------------
-    # 1. Fetch original listing (INCLUDE PHOTOS!)
+    # 1. Fetch listing (metadata only)
     # -------------------------------------------------
     st.info(f"Fetching listing {listing_id}...")
     r = requests.get(
-        f"{BASE_API}/listings/{listing_id}?include=photos",
+        f"{BASE_API}/listings/{listing_id}",
         headers=headers(token),
     )
 
@@ -59,7 +59,7 @@ if st.button("Create Draft with Photos"):
     listing = r.json()
 
     # -------------------------------------------------
-    # 2. Create draft listing
+    # 2. Create draft
     # -------------------------------------------------
     payload = {
         "title": listing.get("title", ""),
@@ -73,7 +73,7 @@ if st.button("Create Draft with Photos"):
         "state": "draft",
     }
 
-    st.info("Creating draft listing...")
+    st.info("Creating draft...")
     draft = requests.post(
         f"{BASE_API}/listings",
         headers={**headers(token), "Content-Type": "application/json"},
@@ -95,15 +95,27 @@ if st.button("Create Draft with Photos"):
     st.success(f"Draft created! ID: {draft_id}")
 
     # -------------------------------------------------
-    # 3. Extract photos
+    # 3. Fetch photos via PHOTOS endpoint (THIS IS THE FIX)
     # -------------------------------------------------
-    photos = listing.get("_embedded", {}).get("photos", [])
+    st.info("Fetching original listing photos...")
+    photos_resp = requests.get(
+        f"{BASE_API}/listings/{listing_id}/photos",
+        headers=headers(token),
+    )
 
-    if not photos:
-        st.warning("Original listing has no photos.")
+    if photos_resp.status_code != 200:
+        st.error("Failed to fetch photos.")
+        st.code(photos_resp.text)
         st.stop()
 
-    st.info(f"Copying {len(photos)} photos...")
+    photos_data = photos_resp.json()
+    photos = photos_data.get("photos", [])
+
+    if not photos:
+        st.warning("No photos returned by API.")
+        st.stop()
+
+    st.info(f"Found {len(photos)} photos. Uploading...")
 
     # -------------------------------------------------
     # 4. Download & upload photos
@@ -111,7 +123,7 @@ if st.button("Create Draft with Photos"):
     for idx, photo in enumerate(photos, start=1):
         photo_url = photo.get("_links", {}).get("full", {}).get("href")
         if not photo_url:
-            st.warning(f"Photo {idx} has no URL.")
+            st.warning(f"Photo {idx} missing URL.")
             continue
 
         img_resp = requests.get(photo_url, stream=True)
@@ -134,8 +146,8 @@ if st.button("Create Draft with Photos"):
         os.unlink(tmp_path)
 
         if upload.status_code not in (200, 201):
-            st.warning(f"Failed to upload photo {idx}")
+            st.warning(f"Upload failed for photo {idx}")
         else:
             st.success(f"Uploaded photo {idx}")
 
-    st.success("✅ Draft fully created with photos!")
+    st.success("✅ Draft created with ALL photos!")
