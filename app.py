@@ -2,14 +2,12 @@
 import streamlit as st
 import requests
 import re
-import tempfile
-import os
 
 st.set_page_config(page_title="Reverb Draft Creator", layout="centered")
-st.title("Reverb Draft Creator (With Manual Photo Upload)")
+st.title("Reverb Draft Creator (Manual Photo Upload)")
 
 st.markdown("""
-Clone a listing's metadata to a draft on your account, and optionally upload your own photos.
+Clone a listing's metadata to a draft on your account, and upload your own photos.
 """)
 
 token = st.text_input("Reverb API Token", type="password")
@@ -96,26 +94,21 @@ if st.button("Create Draft"):
     st.success(f"Draft created! ID: {draft_id}")
 
     # -------------------------------------------------
-    # 3. Upload user-provided photos
+    # 3. Upload user-provided photos (full resolution)
     # -------------------------------------------------
     if uploaded_files:
         st.info(f"Uploading {len(uploaded_files)} photo(s)...")
         for idx, file in enumerate(uploaded_files, start=1):
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                tmp.write(file.read())
-                tmp_path = tmp.name
-
-            with open(tmp_path, "rb") as img:
-                upload = requests.post(
-                    f"{BASE_API}/listings/{draft_id}/photos",
-                    headers=headers(token),
-                    files={"photo": img},
-                )
-
-            os.unlink(tmp_path)
+            # Send file directly from Streamlit's BytesIO
+            upload = requests.post(
+                f"{BASE_API}/listings/{draft_id}/photos",
+                headers=headers(token),
+                files={"photo": (file.name, file, "image/jpeg")},
+            )
 
             if upload.status_code not in (200, 201):
                 st.warning(f"Failed to upload photo {idx}: {file.name}")
+                st.code(upload.text)  # Show Reverb error message
             else:
                 st.success(f"Uploaded photo {idx}: {file.name}")
     else:
