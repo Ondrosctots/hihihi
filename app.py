@@ -111,9 +111,9 @@ if st.button("Create Draft"):
             try:
                 file.seek(0)  # Reset pointer
                 
-                # Step 1: Upload the photo file to get a photo ID
+                # Step 1: Upload the photo file to get a photo ID (updated endpoint)
                 upload_response = requests.post(
-                    f"{BASE_API}/my/photos",
+                    f"{BASE_API}/photos",  # Updated: Removed /my/ for photo uploads
                     headers=headers(token),
                     files={"photo": (file.name, file, "image/jpeg")},
                 )
