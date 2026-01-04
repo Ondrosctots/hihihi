@@ -4,21 +4,30 @@ import requests
 import re
 
 st.set_page_config(page_title="Reverb Draft Creator", layout="centered")
-st.title("Reverb Draft Creator (Manual Photo Upload)")
+st.title("Reverb Draft Creator (Manual Photo Upload with Preview)")
 
 st.markdown("""
 Clone a listing's metadata to a draft on your account, and upload your own photos.
+Preview your photos before creating the draft.
 """)
 
 token = st.text_input("Reverb API Token", type="password")
 url = st.text_input("Reverb Listing URL")
 
-# Allow multiple file uploads for photos
+# Upload multiple images
 uploaded_files = st.file_uploader(
-    "Upload photos to attach to the draft", 
-    type=["png", "jpg", "jpeg"], 
+    "Upload photos to attach to the draft",
+    type=["png", "jpg", "jpeg"],
     accept_multiple_files=True
 )
+
+# Preview uploaded images
+if uploaded_files:
+    st.markdown("### Photo Preview")
+    for file in uploaded_files:
+        file.seek(0)
+        st.image(file, width=200)
+        file.seek(0)  # Reset pointer for later upload
 
 BASE_API = "https://api.reverb.com/api"
 
@@ -46,9 +55,9 @@ if st.button("Create Draft"):
         st.error("Invalid Reverb listing URL.")
         st.stop()
 
-    # -------------------------------------------------
+    # -------------------------
     # 1. Fetch listing metadata
-    # -------------------------------------------------
+    # -------------------------
     st.info(f"Fetching listing {listing_id} metadata...")
     r = requests.get(f"{BASE_API}/listings/{listing_id}", headers=headers(token))
     if r.status_code != 200:
@@ -58,9 +67,9 @@ if st.button("Create Draft"):
 
     listing = r.json()
 
-    # -------------------------------------------------
+    # -------------------------
     # 2. Create draft listing
-    # -------------------------------------------------
+    # -------------------------
     payload = {
         "title": listing.get("title", ""),
         "description": listing.get("description", ""),
@@ -93,24 +102,29 @@ if st.button("Create Draft"):
 
     st.success(f"Draft created! ID: {draft_id}")
 
-    # -------------------------------------------------
-    # 3. Upload user-provided photos (full resolution)
-    # -------------------------------------------------
+    # -------------------------
+    # 3. Upload user photos
+    # -------------------------
     if uploaded_files:
         st.info(f"Uploading {len(uploaded_files)} photo(s)...")
         for idx, file in enumerate(uploaded_files, start=1):
-            # Send file directly from Streamlit's BytesIO
-            upload = requests.post(
-                f"{BASE_API}/listings/{draft_id}/photos",
-                headers=headers(token),
-                files={"photo": (file.name, file, "image/jpeg")},
-            )
+            try:
+                file.seek(0)  # Reset pointer
+                upload = requests.post(
+                    f"{BASE_API}/listings/{draft_id}/photos",
+                    headers=headers(token),
+                    files={"photo": (file.name, file, "image/jpeg")},
+                )
 
-            if upload.status_code not in (200, 201):
-                st.warning(f"Failed to upload photo {idx}: {file.name}")
-                st.code(upload.text)  # Show Reverb error message
-            else:
-                st.success(f"Uploaded photo {idx}: {file.name}")
+                if upload.status_code not in (200, 201):
+                    st.warning(f"Failed to upload photo {idx}: {file.name}")
+                    st.code(upload.text)  # Show full API response
+                else:
+                    st.success(f"Uploaded photo {idx}: {file.name}")
+
+            except Exception as e:
+                st.error(f"Exception uploading photo {idx}: {file.name}")
+                st.code(str(e))
     else:
         st.info("No photos uploaded. You can add them later from Reverb.")
 
