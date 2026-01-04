@@ -103,25 +103,45 @@ if st.button("Create Draft"):
     st.success(f"Draft created! ID: {draft_id}")
 
     # -------------------------
-    # 3. Upload user photos
+    # 3. Upload user photos (Two-step process)
     # -------------------------
     if uploaded_files:
         st.info(f"Uploading {len(uploaded_files)} photo(s)...")
         for idx, file in enumerate(uploaded_files, start=1):
             try:
                 file.seek(0)  # Reset pointer
-                upload = requests.post(
-                    f"{BASE_API}/my/listings/{draft_id}/photos",  # Updated: Added /my/ to the path for user-specific uploads
+                
+                # Step 1: Upload the photo file to get a photo ID
+                upload_response = requests.post(
+                    f"{BASE_API}/my/photos",
                     headers=headers(token),
                     files={"photo": (file.name, file, "image/jpeg")},
                 )
-
-                if upload.status_code not in (200, 201):
-                    st.warning(f"Failed to upload photo {idx}: {file.name}")
-                    st.code(upload.text)  # Show full API response
+                
+                if upload_response.status_code not in (200, 201):
+                    st.warning(f"Failed to upload photo {idx}: {file.name} (Step 1 failed)")
+                    st.code(upload_response.text)
+                    continue  # Skip to next photo
+                
+                photo_data = upload_response.json()
+                photo_id = photo_data.get("id")
+                if not photo_id:
+                    st.warning(f"No photo ID returned for {file.name} (Step 1)")
+                    continue
+                
+                # Step 2: Associate the photo with the draft listing
+                associate_response = requests.post(
+                    f"{BASE_API}/my/listings/{draft_id}/photos",
+                    headers={**headers(token), "Content-Type": "application/json"},
+                    json={"photo_id": photo_id}
+                )
+                
+                if associate_response.status_code not in (200, 201):
+                    st.warning(f"Failed to associate photo {idx}: {file.name} (Step 2 failed)")
+                    st.code(associate_response.text)
                 else:
-                    st.success(f"Uploaded photo {idx}: {file.name}")
-
+                    st.success(f"Uploaded and associated photo {idx}: {file.name}")
+            
             except Exception as e:
                 st.error(f"Exception uploading photo {idx}: {file.name}")
                 st.code(str(e))
